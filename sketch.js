@@ -8,7 +8,6 @@ let targetCircle;
 let circleRadius = 50; // Half of the width/height
 
 function preload() {
-  console.log("Preload is running");
   // Initialize HandPose model with flipped video input
   handPose = ml5.handPose({ flipped: true });
 }
@@ -18,7 +17,6 @@ function gotHands(results) {
 }
 
 function setup() {
-  console.log("Setup is running");
   createCanvas(640, 480);
   video = createCapture(VIDEO, { flipped: true });
   video.hide();
@@ -32,18 +30,15 @@ function setup() {
     y: height / 2,
     radius: circleRadius,
   };
-  console.log("Target circle created:", targetCircle); // Check if the object is created
 }
 
 function draw() {
-  console.log("Draw is running");
   image(video, 0, 0);
 
-  // Explicitly set fill and noStroke before drawing
-  fill(200);
+  // Draw the target circle with a vibrant color (e.g., bright green)
+  fill(0, 255, 0); // RGB: Red=0, Green=255, Blue=0
   noStroke();
   ellipse(targetCircle.x, targetCircle.y, targetCircle.radius * 2);
-  console.log("Drawing circle at:", targetCircle.x, targetCircle.y); // Check draw position
 
   // Ensure at least one hand is detected
   if (hands.length > 0) {
