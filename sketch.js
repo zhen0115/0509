@@ -6,6 +6,8 @@ let handPose;
 let hands = [];
 let targetCircle;
 let circleRadius = 50; // Half of the width/height
+let isLeftTouching = false;
+let isRightTouching = false;
 
 function preload() {
   // Initialize HandPose model with flipped video input
@@ -39,6 +41,9 @@ function draw() {
   fill(200);
   noStroke();
   ellipse(targetCircle.x, targetCircle.y, targetCircle.radius * 2);
+
+  isLeftTouching = false;
+  isRightTouching = false;
 
   // Ensure at least one hand is detected
   if (hands.length > 0) {
@@ -107,6 +112,7 @@ function draw() {
       if (d < targetCircle.radius) {
         targetCircle.x = leftIndexFinger.x;
         targetCircle.y = leftIndexFinger.y;
+        isLeftTouching = true;
       }
     }
 
@@ -116,6 +122,7 @@ function draw() {
       if (d < targetCircle.radius) {
         targetCircle.x = rightIndexFinger.x;
         targetCircle.y = rightIndexFinger.y;
+        isRightTouching = true;
       }
     }
   }
