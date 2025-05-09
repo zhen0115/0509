@@ -6,8 +6,6 @@ let handPose;
 let hands = [];
 let targetCircle;
 let circleRadius = 50; // Half of the width/height
-let isLeftTouching = false;
-let isRightTouching = false;
 
 function preload() {
   // Initialize HandPose model with flipped video input
@@ -40,10 +38,7 @@ function draw() {
   // Draw the target circle
   fill(200);
   noStroke();
-  ellipse(targetCircle.x, targetCircle.y, targetCircle.radius * 2);
-
-  isLeftTouching = false;
-  isRightTouching = false;
+  ellipse(targetCircle.x, targetCircle.y, targetCircle.radius * 2); // Ensure the circle is drawn here
 
   // Ensure at least one hand is detected
   if (hands.length > 0) {
@@ -62,12 +57,12 @@ function draw() {
           rightIndexFinger = indexFinger;
         }
 
-        // Draw the hand keypoints and lines (as in the previous code)
+        // Draw the hand keypoints and lines
         let lineColor;
         if (hand.handedness == "Left") {
-          lineColor = color(255, 0, 255); // Magenta for left hand
+          lineColor = color(255, 0, 255);
         } else {
-          lineColor = color(255, 255, 0); // Yellow for right hand
+          lineColor = color(255, 255, 0);
         }
         stroke(lineColor);
         strokeWeight(3);
@@ -112,7 +107,6 @@ function draw() {
       if (d < targetCircle.radius) {
         targetCircle.x = leftIndexFinger.x;
         targetCircle.y = leftIndexFinger.y;
-        isLeftTouching = true;
       }
     }
 
@@ -122,7 +116,6 @@ function draw() {
       if (d < targetCircle.radius) {
         targetCircle.x = rightIndexFinger.x;
         targetCircle.y = rightIndexFinger.y;
-        isRightTouching = true;
       }
     }
   }
