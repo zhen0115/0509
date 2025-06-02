@@ -1,98 +1,89 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手勢捕捉遊戲</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
+    <title>手勢控制接球遊戲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        /* 整體頁面樣式 */
         body {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh; /* 確保內容至少佔滿整個視窗高度 */
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            background-color: #282c34; /* 深色背景 */
-            font-family: 'Inter', sans-serif; /* 使用 Inter 字體 */
-            color: white; /* 預設文字顏色為白色 */
-            overflow: hidden; /* 防止滾動條出現 */
-            padding: 20px; /* 增加一些內邊距 */
-            box-sizing: border-box; /* 邊框盒模型 */
+            overflow: hidden; /* Prevent scrollbars due to full-screen background */
         }
-
-        /* 遊戲容器樣式 */
-        #game-container {
-            border-radius: 15px; /* 圓角邊框 */
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); /* 發光邊框效果 */
-            display: block; /* 移除 canvas 下方的額外空間 */
-            width: 100%; /* 讓 canvas 寬度響應式 */
-            max-width: 640px; /* 桌面端最大寬度 */
-            height: auto; /* 維持長寬比 */
-            background-color: #3a3f47; /* 較深的 canvas 背景 */
-            margin-bottom: 20px; /* 與下方控制按鈕的間距 */
+        /* Custom styles for the canvas container */
+        #p5-canvas-container {
+            border: 4px solid #6366f1; /* Indigo-500 */
+            border-radius: 1rem; /* rounded-xl */
+            overflow: hidden; /* Ensures content stays within rounded corners */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-lg */
+            display: flex; /* Use flexbox to center canvas */
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(17, 24, 39, 0.8); /* bg-gray-900 bg-opacity-80 */
         }
-
-        /* 控制按鈕容器樣式 */
-        .controls {
-            margin-top: 0; /* 調整與 canvas 的間距 */
-            display: flex;
-            gap: 15px; /* 按鈕之間的間距 */
-            flex-wrap: wrap; /* 在小螢幕上換行 */
-            justify-content: center; /* 水平居中按鈕 */
+        canvas {
+            display: block; /* Remove extra space below canvas */
         }
-
-        /* 按鈕樣式 */
-        button {
-            padding: 12px 25px;
-            font-size: 1.2em;
-            background-color: #007bff; /* 藍色背景 */
-            color: white; /* 白色文字 */
-            border: none; /* 無邊框 */
-            border-radius: 10px; /* 圓角 */
-            cursor: pointer; /* 鼠標懸停時顯示手型 */
-            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease; /* 平滑過渡效果 */
-            box-shadow: 0 4px 10px rgba(0, 123, 255, 0.4); /* 陰影效果 */
-            min-width: 150px; /* 最小寬度 */
+        /* Style for buttons */
+        .game-button {
+            padding: 0.75rem 1.5rem; /* px-6 py-3 */
+            border-radius: 9999px; /* rounded-full */
+            font-weight: 700; /* font-bold */
+            font-size: 1.125rem; /* text-lg */
+            transition: all 0.3s ease-in-out;
+            background-color: #4f46e5; /* bg-indigo-600 */
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
         }
-
-        /* 按鈕懸停效果 */
-        button:hover {
-            background-color: #0056b3; /* 深藍色 */
-            transform: translateY(-2px); /* 輕微上移 */
-            box-shadow: 0 6px 15px rgba(0, 123, 255, 0.6); /* 增強陰影 */
+        .game-button:hover {
+            background-color: #4338ca; /* hover:bg-indigo-700 */
+            transform: scale(1.05); /* hover:scale-105 */
         }
-
-        /* 按鈕點擊效果 */
-        button:active {
-            transform: translateY(0); /* 返回原位 */
-            box-shadow: 0 2px 5px rgba(0, 123, 255, 0.3); /* 減弱陰影 */
+        .game-button:active {
+            transform: scale(0.95); /* active:scale-95 */
         }
-
-        /* 響應式調整 */
-        @media (max-width: 768px) {
-            #game-container {
-                max-width: 95%; /* 小螢幕上佔用更多寬度 */
-            }
-            .controls {
-                flex-direction: column; /* 按鈕垂直排列 */
-                gap: 10px; /* 調整間距 */
-            }
-            button {
-                width: 100%; /* 按鈕佔滿可用寬度 */
-            }
+        .game-button:focus {
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5); /* focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 */
+        }
+        .game-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
     </style>
 </head>
-<body>
-    <div id="game-container">
+<body class="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white flex flex-col items-center justify-center p-4">
+
+    <h1 class="text-5xl font-extrabold mb-8 text-center drop-shadow-lg">
+        手勢控制接球遊戲
+    </h1>
+
+    <div class="flex flex-col md:flex-row items-center justify-center gap-8 w-full max-w-6xl">
+        <div class="bg-gray-800 bg-opacity-70 p-6 rounded-xl shadow-2xl flex flex-col items-center w-full md:w-1/4 min-w-[200px]">
+            <h2 class="text-3xl font-bold mb-4 text-purple-300">遊戲統計</h2>
+            <div class="text-2xl mb-2">分數: <span id="score" class="font-semibold text-green-400">0</span></div>
+            <div class="text-2xl mb-4">錯過: <span id="missedCircles" class="font-semibold text-red-400">0/5</span></div>
+            <button id="startGameButton" class="game-button mt-4">
+                載入模型中...
+            </button>
+            <p class="text-sm mt-4 text-gray-400 text-center">
+                請確保您的攝影機已啟用並可見。
+            </p>
         </div>
-    <div class="controls">
-        <button id="startButton">開始遊戲</button>
-        <button id="resetButton" style="display: none;">再玩一次</button>
+
+        <div id="p5-canvas-container" class="flex-grow flex items-center justify-center rounded-xl shadow-2xl">
+            </div>
     </div>
-    <script src="game.js"></script>
+
+    <div id="gameMessage" class="mt-8 text-3xl font-semibold text-center text-yellow-300 drop-shadow-md">
+        按下開始按鈕開始！
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
