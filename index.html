@@ -1,89 +1,119 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手勢控制接球遊戲</title>
+    <title>手控教育遊戲</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
     <style>
+        /* 設定網頁主體樣式，居中顯示遊戲內容 */
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', sans-serif; /* 使用 Inter 字體 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* 確保佔滿整個視窗高度 */
+            background-color: #1a202c; /* 深色背景 */
             margin: 0;
-            overflow: hidden; /* Prevent scrollbars due to full-screen background */
+            overflow: hidden; /* 防止滾動條出現 */
         }
-        /* Custom styles for the canvas container */
-        #p5-canvas-container {
-            border: 4px solid #6366f1; /* Indigo-500 */
-            border-radius: 1rem; /* rounded-xl */
-            overflow: hidden; /* Ensures content stays within rounded corners */
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-lg */
-            display: flex; /* Use flexbox to center canvas */
+        /* 遊戲容器樣式，用於包裹畫布和疊加層 */
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px; /* 最大寬度為 640px */
+            display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(17, 24, 39, 0.8); /* bg-gray-900 bg-opacity-80 */
+            padding: 1rem; /* 內邊距 */
         }
+        /* 畫布樣式 */
         canvas {
-            display: block; /* Remove extra space below canvas */
+            border-radius: 1rem; /* 圓角邊框 */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* 陰影效果 */
+            display: block; /* 移除畫布下方多餘空間 */
+            width: 100%; /* 響應式寬度 */
+            height: auto; /* 維持長寬比 */
         }
-        /* Style for buttons */
-        .game-button {
-            padding: 0.75rem 1.5rem; /* px-6 py-3 */
-            border-radius: 9999px; /* rounded-full */
-            font-weight: 700; /* font-bold */
-            font-size: 1.125rem; /* text-lg */
-            transition: all 0.3s ease-in-out;
-            background-color: #4f46e5; /* bg-indigo-600 */
-            color: white;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
+        /* 遊戲疊加層樣式（開始畫面、遊戲結束畫面） */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7); /* 半透明黑色背景 */
+            color: white; /* 白色文字 */
+            border-radius: 1rem; /* 圓角邊框 */
+            text-align: center;
+            z-index: 10; /* 確保在畫布上方 */
         }
-        .game-button:hover {
-            background-color: #4338ca; /* hover:bg-indigo-700 */
-            transform: scale(1.05); /* hover:scale-105 */
+        /* 疊加層標題樣式 */
+        .overlay h1 {
+            font-size: 2.5rem; /* 字體大小 */
+            font-weight: bold; /* 粗體 */
+            margin-bottom: 1rem; /* 下邊距 */
         }
-        .game-button:active {
-            transform: scale(0.95); /* active:scale-95 */
+        /* 疊加層訊息樣式 */
+        .overlay p {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
         }
-        .game-button:focus {
-            outline: none;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5); /* focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 */
+        /* 疊加層按鈕樣式 */
+        .overlay button {
+            padding: 0.75rem 2rem; /* 內邊距 */
+            font-size: 1.25rem; /* 字體大小 */
+            font-weight: bold; /* 粗體 */
+            background-color: #4CAF50; /* 綠色背景 */
+            color: white; /* 白色文字 */
+            border: none; /* 無邊框 */
+            border-radius: 0.5rem; /* 圓角 */
+            cursor: pointer; /* 鼠標指針樣式 */
+            transition: background-color 0.3s ease; /* 背景顏色過渡效果 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* 陰影 */
         }
-        .game-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
+        /* 按鈕懸停效果 */
+        .overlay button:hover {
+            background-color: #45a049; /* 懸停時變深綠色 */
+        }
+        /* 隱藏元素樣式 */
+        .hidden {
+            display: none;
+        }
+        /* 問題顯示區塊樣式 */
+        #question-display {
+            position: absolute;
+            top: 10px; /* 距離頂部 10px */
+            width: 100%; /* 佔滿整個寬度 */
+            text-align: center; /* 文字居中 */
+            color: white; /* 白色文字 */
+            font-size: 2rem; /* 字體大小 */
+            font-weight: bold; /* 粗體 */
+            z-index: 5; /* 確保在疊加層下方，畫布上方 */
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5); /* 添加文字陰影以提高可讀性 */
         }
     </style>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white flex flex-col items-center justify-center p-4">
-
-    <h1 class="text-5xl font-extrabold mb-8 text-center drop-shadow-lg">
-        手勢控制接球遊戲
-    </h1>
-
-    <div class="flex flex-col md:flex-row items-center justify-center gap-8 w-full max-w-6xl">
-        <div class="bg-gray-800 bg-opacity-70 p-6 rounded-xl shadow-2xl flex flex-col items-center w-full md:w-1/4 min-w-[200px]">
-            <h2 class="text-3xl font-bold mb-4 text-purple-300">遊戲統計</h2>
-            <div class="text-2xl mb-2">分數: <span id="score" class="font-semibold text-green-400">0</span></div>
-            <div class="text-2xl mb-4">錯過: <span id="missedCircles" class="font-semibold text-red-400">0/5</span></div>
-            <button id="startGameButton" class="game-button mt-4">
-                載入模型中...
-            </button>
-            <p class="text-sm mt-4 text-gray-400 text-center">
-                請確保您的攝影機已啟用並可見。
-            </p>
+<body>
+    <div class="game-container">
+        <div id="p5-canvas-container" class="w-full relative pb-[75%]">
+            <canvas id="defaultCanvas0" class="absolute top-0 left-0 w-full h-full"></canvas>
+            <div id="question-display" class="hidden"></div>
         </div>
-
-        <div id="p5-canvas-container" class="flex-grow flex items-center justify-center rounded-xl shadow-2xl">
-            </div>
+        <div id="game-overlay" class="overlay hidden">
+            <h1 id="overlay-title"></h1>
+            <p id="overlay-message"></p>
+            <button id="overlay-button"></button>
+        </div>
     </div>
 
-    <div id="gameMessage" class="mt-8 text-3xl font-semibold text-center text-yellow-300 drop-shadow-md">
-        按下開始按鈕開始！
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
-    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
-    <script src="script.js"></script>
+    <script src="game.js"></script>
 </body>
 </html>
