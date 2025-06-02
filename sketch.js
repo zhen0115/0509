@@ -25,6 +25,8 @@ function preload() {
 // Callback function when hand detection results are available
 function gotHands(results) {
     hands = results;
+    // Log the number of hands detected for debugging
+    console.log("Hands detected: " + hands.length);
 }
 
 // setup function - executed once when the program starts
@@ -108,11 +110,11 @@ function draw() {
                 let handY = (hand.keypoints[0].y + hand.keypoints[9].y) / 2;
                 let catchingRadius = 60; // Define the size of the hand catching area
 
-                // (Optional) Draw a circle around the hand catching point for visual feedback
-                // noFill();
-                // stroke(0, 0, 255, 100); // Semi-transparent blue
-                // strokeWeight(2);
-                // ellipse(handX, handY, catchingRadius * 2);
+                // Draw a circle around the hand catching point for visual feedback (UNCOMMENTED)
+                noFill();
+                stroke(0, 0, 255, 150); // Semi-transparent blue
+                strokeWeight(2);
+                ellipse(handX, handY, catchingRadius * 2);
 
                 // Check the distance between the falling item and the hand's catching point
                 let d = dist(item.x, item.y, handX, handY);
@@ -130,6 +132,9 @@ function draw() {
 
     // Draw hand keypoints and skeleton lines
     drawHands();
+
+    // Display hand detection status
+    displayHandDetectionStatus();
 }
 
 // --- Helper functions for drawing and game logic ---
@@ -294,5 +299,17 @@ function drawHands() {
                 }
             }
         }
+    }
+}
+
+// Display text indicating hand detection status
+function displayHandDetectionStatus() {
+    fill(255); // White text
+    textSize(18);
+    textAlign(RIGHT, TOP);
+    if (hands.length > 0) {
+        text("手部已偵測到！", width - 10, 10);
+    } else {
+        text("正在等待手部偵測...", width - 10, 10);
     }
 }
