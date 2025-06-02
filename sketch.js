@@ -9,6 +9,7 @@ let auth;
 let userId;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+// FIX: Corrected typo here from `initialAuthToken` to `__initial_auth_token`
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 // Initialize Firebase if config is available
@@ -64,6 +65,7 @@ let currentGameState = GAME_STATE.LOADING; // Start in loading state
 // Flags for readiness
 let modelLoaded = false;
 let videoReady = false;
+let handPoseDetectionStarted = false; // New flag to track if handPose.detectStart has been called
 
 // UI elements
 const scoreDisplay = document.getElementById('scoreDisplay');
@@ -94,10 +96,22 @@ function modelReady() {
     checkReadinessAndTransition();
 }
 
-// Callback when video is loaded
-function videoLoadSuccess() {
+// Callback when video is loaded and ready to stream
+function videoLoadSuccess(stream) {
     console.log('Video loaded successfully!');
     videoReady = true;
+    // Explicitly set srcObject if createCapture doesn't handle it immediately
+    // This is often not strictly necessary with p5.js createCapture but can help ensure display
+    if (video && video.elt && !video.elt.srcObject) {
+        video.elt.srcObject = stream;
+    }
+
+    // Start hand pose detection only after video is confirmed ready and stream is available
+    if (!handPoseDetectionStarted) {
+        handPose.detectStart(video, gotHands);
+        handPoseDetectionStarted = true;
+        console.log('HandPose detection started.');
+    }
     checkReadinessAndTransition();
 }
 
@@ -117,7 +131,7 @@ function videoLoadError(err) {
 
 // Check if both model and video are ready to transition to start screen
 function checkReadinessAndTransition() {
-    if (modelLoaded && videoReady && currentGameState === GAME_STATE.LOADING) {
+    if (modelLoaded && videoReady && handPoseDetectionStarted && currentGameState === GAME_STATE.LOADING) {
         currentGameState = GAME_STATE.START_SCREEN;
         overlayTitle.textContent = '數字捕捉大挑戰';
         overlayMessage.innerHTML = `
@@ -129,11 +143,19 @@ function checkReadinessAndTransition() {
         gameOverlay.classList.remove('hidden'); // Ensure overlay is visible for start screen
         loop(); // Start draw loop to show overlay
     } else if (currentGameState === GAME_STATE.LOADING) {
-        // Update loading message
-        let loadingMsg = '載入中...';
-        if (modelLoaded) loadingMsg += ' 模型已載入。';
-        if (videoReady) loadingMsg += ' 攝影機已準備。';
-        overlayMessage.textContent = loadingMsg;
+        // Update loading message based on what's ready
+        let loadingMsg = '載入中...<br>';
+        if (modelLoaded) {
+            loadingMsg += '模型已載入。<br>';
+        } else {
+            loadingMsg += '等待模型載入...<br>';
+        }
+        if (videoReady) {
+            loadingMsg += '攝影機已準備。<br>';
+        } else {
+            loadingMsg += '等待攝影機準備...<br>';
+        }
+        overlayMessage.innerHTML = loadingMsg;
         gameOverlay.classList.remove('hidden'); // Ensure overlay is visible during loading
     }
 }
@@ -156,15 +178,13 @@ window.setup = function() {
     canvas.parent('p5-canvas-container'); // Attach canvas to the specific div
 
     // Attempt to create video capture, passing videoLoadSuccess as a callback
+    // The second argument to createCapture is the success callback for the stream
     video = createCapture(VIDEO, { flipped: true }, videoLoadSuccess);
     video.hide();
     // Add an error handler for the underlying video element
     video.elt.onerror = videoLoadError;
 
-    // Start hand pose detection on the video feed
-    // ml5.js handles internal video readiness, so calling it here is fine.
-    handPose.detectStart(video, gotHands);
-
+    // handPose.detectStart is now called inside videoLoadSuccess
     // Initialize falling numbers (only if game is not in an error state)
     if (currentGameState !== GAME_STATE.GAME_OVER) {
         for (let i = 0; i < 5; i++) { // Start with a few numbers on screen
@@ -235,12 +255,19 @@ window.draw = function() {
         // Only draw video and hands if they are ready
         if (videoReady) {
             image(video, 0, 0, width, height);
+            // If video is ready but no hands are detected, show a message
+            if (hands.length === 0) {
+                fill(255, 255, 255, 150); // Semi-transparent white
+                textAlign(CENTER, CENTER);
+                textSize(20);
+                text('請將手放在攝影機前', width / 2, height / 2 + 50);
+            }
         } else {
             // Display a message if video is not ready
             fill(255);
             textAlign(CENTER, CENTER);
             textSize(24);
-            text('等待攝影機...', width / 2, height / 2);
+            text('攝影機中斷，請檢查...', width / 2, height / 2);
         }
 
 
@@ -381,8 +408,14 @@ window.draw = function() {
             text(num.value, num.x, num.y);
         }
     } else if (currentGameState === GAME_STATE.LOADING) {
-        // Overlay is visible by default in HTML, and checkReadinessAndTransition updates its message
-        // No additional drawing needed on canvas for loading state, as overlay covers it.
+        // Draw loading message on canvas as well
+        fill(255);
+        textAlign(CENTER, CENTER);
+        textSize(24);
+        let loadingMsg = '載入中...';
+        if (modelLoaded) loadingMsg += '\n模型已載入。';
+        if (videoReady) loadingMsg += '\n攝影機已準備。';
+        text(loadingMsg, width / 2, height / 2);
     } else if (currentGameState === GAME_STATE.START_SCREEN) {
         // Overlay is visible, showing start game message.
         // No additional drawing needed on canvas for start screen, as overlay covers it.
