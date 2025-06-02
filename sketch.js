@@ -54,11 +54,16 @@ const numberRadius = 30; // Radius of falling numbers
 
 // Game states
 const GAME_STATE = {
+    LOADING: 'LOADING', // New loading state
     START_SCREEN: 'START_SCREEN',
     PLAYING: 'PLAYING',
     GAME_OVER: 'GAME_OVER'
 };
-let currentGameState = GAME_STATE.START_SCREEN;
+let currentGameState = GAME_STATE.LOADING; // Start in loading state
+
+// Flags for readiness
+let modelLoaded = false;
+let videoReady = false;
 
 // UI elements
 const scoreDisplay = document.getElementById('scoreDisplay');
@@ -82,43 +87,99 @@ function hideMessageBox() {
     messageBox.style.display = 'none';
 }
 
+// Callback when ml5.js model is loaded
+function modelReady() {
+    console.log('HandPose model loaded!');
+    modelLoaded = true;
+    checkReadinessAndTransition();
+}
+
+// Callback when video is loaded
+function videoLoadSuccess() {
+    console.log('Video loaded successfully!');
+    videoReady = true;
+    checkReadinessAndTransition();
+}
+
+// Callback if video loading fails
+function videoLoadError(err) {
+    console.error('Video capture error:', err);
+    showMessageBox('無法啟動攝影機。請檢查攝影機權限並重新整理頁面。');
+    // Transition to an error state where game cannot start
+    currentGameState = GAME_STATE.GAME_OVER; // Use GAME_OVER to indicate unplayable state
+    overlayTitle.textContent = '錯誤！';
+    overlayMessage.innerHTML = '無法啟動攝影機。請檢查攝影機權限並重新整理頁面。';
+    startButton.classList.add('hidden');
+    restartButton.classList.add('hidden');
+    gameOverlay.classList.remove('hidden');
+    noLoop(); // Stop draw loop
+}
+
+// Check if both model and video are ready to transition to start screen
+function checkReadinessAndTransition() {
+    if (modelLoaded && videoReady && currentGameState === GAME_STATE.LOADING) {
+        currentGameState = GAME_STATE.START_SCREEN;
+        overlayTitle.textContent = '數字捕捉大挑戰';
+        overlayMessage.innerHTML = `
+            用食指捕捉偶數，用拇指捕捉奇數！<br>
+            準備好了嗎？
+        `;
+        startButton.classList.remove('hidden');
+        restartButton.classList.add('hidden');
+        gameOverlay.classList.remove('hidden'); // Ensure overlay is visible for start screen
+        loop(); // Start draw loop to show overlay
+    } else if (currentGameState === GAME_STATE.LOADING) {
+        // Update loading message
+        let loadingMsg = '載入中...';
+        if (modelLoaded) loadingMsg += ' 模型已載入。';
+        if (videoReady) loadingMsg += ' 攝影機已準備。';
+        overlayMessage.textContent = loadingMsg;
+        gameOverlay.classList.remove('hidden'); // Ensure overlay is visible during loading
+    }
+}
+
+
 // p5.js preload function
 window.preload = function() {
-    // Initialize ml5 handPose model
-    // The 'flipped: true' option mirrors the video, so the hand appears as if looking in a mirror.
-    handPose = ml5.handPose({ flipped: true });
+    // Initialize ml5 handPose model, passing modelReady as a callback
+    handPose = ml5.handPose({ flipped: true }, modelReady);
 }
 
 // Callback function for ml5 handPose detection
 window.gotHands = function(results) {
-    // Store the detected hand keypoints
     hands = results;
 }
 
 // p5.js setup function
 window.setup = function() {
-    // Create a canvas with a fixed size, which will be scaled by CSS
     const canvas = createCanvas(640, 480);
     canvas.parent('p5-canvas-container'); // Attach canvas to the specific div
 
-    // Create video capture and hide the default HTML video element
-    video = createCapture(VIDEO, { flipped: true }); // Mirror the video horizontally
+    // Attempt to create video capture, passing videoLoadSuccess as a callback
+    video = createCapture(VIDEO, { flipped: true }, videoLoadSuccess);
     video.hide();
+    // Add an error handler for the underlying video element
+    video.elt.onerror = videoLoadError;
 
     // Start hand pose detection on the video feed
+    // ml5.js handles internal video readiness, so calling it here is fine.
     handPose.detectStart(video, gotHands);
 
-    // Initialize falling numbers
-    for (let i = 0; i < 5; i++) { // Start with a few numbers on screen
-        fallingNumbers.push(createFallingNumber());
+    // Initialize falling numbers (only if game is not in an error state)
+    if (currentGameState !== GAME_STATE.GAME_OVER) {
+        for (let i = 0; i < 5; i++) { // Start with a few numbers on screen
+            fallingNumbers.push(createFallingNumber());
+        }
     }
 
     // Set up event listeners for buttons
     startButton.addEventListener('click', startGame);
     restartButton.addEventListener('click', startGame);
 
-    // Initial display update
+    // Initial UI update for loading state
     updateUI();
+    checkReadinessAndTransition(); // Check initial readiness and update overlay
+    noLoop(); // Pause draw loop initially until everything is ready
 }
 
 // Function to create a new falling number object
@@ -167,10 +228,22 @@ function updateUI() {
 
 // p5.js draw function - main game loop
 window.draw = function() {
-    // Draw the video feed as the background
-    image(video, 0, 0, width, height);
+    // Always draw a background, even if video isn't ready, to avoid black screen
+    background(0); // Black background for the canvas
 
     if (currentGameState === GAME_STATE.PLAYING) {
+        // Only draw video and hands if they are ready
+        if (videoReady) {
+            image(video, 0, 0, width, height);
+        } else {
+            // Display a message if video is not ready
+            fill(255);
+            textAlign(CENTER, CENTER);
+            textSize(24);
+            text('等待攝影機...', width / 2, height / 2);
+        }
+
+
         // Update game timer
         gameTimer -= deltaTime / 1000; // deltaTime is in milliseconds
         if (gameTimer <= 0) {
@@ -307,18 +380,14 @@ window.draw = function() {
             textSize(num.radius * 0.8);
             text(num.value, num.x, num.y);
         }
+    } else if (currentGameState === GAME_STATE.LOADING) {
+        // Overlay is visible by default in HTML, and checkReadinessAndTransition updates its message
+        // No additional drawing needed on canvas for loading state, as overlay covers it.
     } else if (currentGameState === GAME_STATE.START_SCREEN) {
-        // Initial start screen setup
-        gameOverlay.classList.remove('hidden');
-        overlayTitle.textContent = '數字捕捉大挑戰';
-        overlayMessage.innerHTML = `
-            用食指捕捉偶數，用拇指捕捉奇數！<br>
-            準備好了嗎？
-        `;
-        startButton.classList.remove('hidden');
-        restartButton.classList.add('hidden');
-        noLoop(); // Pause draw loop until game starts
+        // Overlay is visible, showing start game message.
+        // No additional drawing needed on canvas for start screen, as overlay covers it.
     } else if (currentGameState === GAME_STATE.GAME_OVER) {
         // Game over screen is handled by endGame() and noLoop()
+        // Overlay is visible, showing game over message.
     }
 }
