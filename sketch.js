@@ -10,9 +10,6 @@ let circleRadius = 50; // Half of the width/height
 let indexFingerTouching = false;
 let thumbTouching = false;
 
-let indexFingerPath = [];
-let thumbPath = [];
-
 function preload() {
   handPose = ml5.handPose({ flipped: true });
 }
@@ -30,32 +27,21 @@ function setup() {
 
   targetCircle = {
     x: width / 2,
-    y: height / 2,
+    y: -circleRadius, // Start above the canvas
     radius: circleRadius,
+    speed: 2, // Adjust for falling speed
   };
 }
 
 function draw() {
   image(video, 0, 0);
 
-  // Draw the paths
-  stroke(255, 0, 0); // Red for index finger
-  strokeWeight(3);
-  noFill();
-  beginShape();
-  for (let point of indexFingerPath) {
-    vertex(point.x, point.y);
+  // Update target circle position for falling
+  targetCircle.y += targetCircle.speed;
+  if (targetCircle.y > height + targetCircle.radius) {
+    targetCircle.y = -targetCircle.radius; // Reset to the top
+    targetCircle.x = random(width); // Random horizontal position
   }
-  endShape();
-
-  stroke(0, 255, 0); // Green for thumb
-  strokeWeight(3);
-  noFill();
-  beginShape();
-  for (let point of thumbPath) {
-    vertex(point.x, point.y);
-  }
-  endShape();
 
   // Draw the target circle
   fill(0, 255, 0); // Bright green
@@ -109,7 +95,7 @@ function draw() {
       }
     }
 
-    // Index finger interaction
+    // Index finger interaction (only detecting touch, not moving)
     let indexFingerClosest = null;
     let minIndexDist = Infinity;
     if (leftIndexFinger) {
@@ -128,16 +114,11 @@ function draw() {
     }
 
     if (indexFingerClosest && minIndexDist < targetCircle.radius) {
-      targetCircle.x = indexFingerClosest.x;
-      targetCircle.y = indexFingerClosest.y;
       indexFingerTouching = true;
-      indexFingerPath.push({ x: targetCircle.x, y: targetCircle.y });
-    } else {
-      // Optionally clear the path when not touching
-      // indexFingerPath = [];
+      // No longer moving the circle with the finger
     }
 
-    // Thumb interaction
+    // Thumb interaction (only detecting touch, not moving)
     let thumbClosest = null;
     let minThumbDist = Infinity;
     if (leftThumb) {
@@ -156,13 +137,8 @@ function draw() {
     }
 
     if (thumbClosest && minThumbDist < targetCircle.radius) {
-      targetCircle.x = thumbClosest.x;
-      targetCircle.y = thumbClosest.y;
       thumbTouching = true;
-      thumbPath.push({ x: targetCircle.x, y: targetCircle.y });
-    } else {
-      // Optionally clear the path when not touching
-      // thumbPath = [];
+      // No longer moving the circle with the thumb
     }
   }
 }
