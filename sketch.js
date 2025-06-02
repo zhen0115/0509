@@ -424,9 +424,14 @@ window.draw = function() {
         fill(255);
         textAlign(CENTER, CENTER);
         textSize(24);
-        let loadingMsg = '載入中...';
-        if (modelLoaded) loadingMsg += '\n模型已載入。';
-        if (videoReady) loadingMsg += '\n攝影機已準備。';
+        let loadingProgress = floor(frameCount * 0.05) % 4; // Cycles 0, 1, 2, 3
+        let dots = '';
+        for (let i = 0; i < loadingProgress; i++) {
+            dots += '.';
+        }
+        let loadingMsg = '載入中' + dots + '\n';
+        if (modelLoaded) loadingMsg += '模型已載入。\n';
+        if (videoReady) loadingMsg += '攝影機已準備。\n';
         text(loadingMsg, width / 2, height / 2);
 
         // Add a simple visual loading indicator (e.g., pulsing circle)
