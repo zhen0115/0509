@@ -1,450 +1,298 @@
-// Firebase setup (placeholder for future use, not used in this game version)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+// Global variables
+let video; // Video input
+let handPose; // ml5.js Hand Pose Detection model
+let hands = []; // Detected hand data
 
-// Global variables for Firebase (if used)
-let db;
-let auth;
-let userId;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null; // Corrected variable name
+let gameStarted = false; // Is the game started?
+let score = 0; // Player's score
+let lives = 5; // Player's lives
+let fallingItems = []; // Array to store all falling items
+let targetChar = ''; // The current character to catch
 
-// Initialize Firebase if config is available
-if (Object.keys(firebaseConfig).length > 0) {
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    auth = getAuth(app);
+let itemGenerationInterval = 1500; // Interval for generating falling items (milliseconds)
+let lastItemGenerationTime = 0; // Time when the last item was generated
 
-    // Sign in anonymously or with custom token
-    onAuthStateChanged(auth, async (user) => {
-        if (!user) {
-            try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                userId = auth.currentUser?.uid || crypto.randomUUID();
-                console.log("Firebase authenticated. User ID:", userId);
-            } catch (error) {
-                console.error("Firebase authentication error:", error);
-                userId = crypto.randomUUID(); // Fallback to random ID
-            }
-        } else {
-            userId = user.uid;
-            console.log("Firebase user already signed in. User ID:", userId);
-        }
-    });
-} else {
-    console.warn("Firebase config not found. Running without Firebase features.");
-    userId = crypto.randomUUID(); // Generate a random ID if Firebase is not configured
+let startButton; // Start game button
+let resetButton; // Play again button
+let gameOver = false; // Is the game over?
+
+// Preload function - loads the hand pose detection model
+function preload() {
+    // Model is flipped because video capture is flipped by default
+    handPose = ml5.handPose({ flipped: true });
 }
 
-// Global game variables
-let video;
-let handPose;
-let hands = [];
-let fallingNumbers = [];
-let score = 0;
-let gameTimer = 0;
-const gameDuration = 60; // seconds
-const numberRadius = 30; // Radius of falling numbers
-
-// Game states
-const GAME_STATE = {
-    LOADING: 'LOADING', // New loading state
-    START_SCREEN: 'START_SCREEN',
-    PLAYING: 'PLAYING',
-    GAME_OVER: 'GAME_OVER'
-};
-let currentGameState = GAME_STATE.LOADING; // Start in loading state
-
-// Flags for readiness
-let modelLoaded = false;
-let videoReady = false;
-let handPoseDetectionStarted = false; // New flag to track if handPose.detectStart has been called
-
-// UI elements
-const scoreDisplay = document.getElementById('scoreDisplay');
-const timerDisplay = document.getElementById('timerDisplay');
-const gameOverlay = document.getElementById('gameOverlay');
-const overlayTitle = document.getElementById('overlayTitle');
-const overlayMessage = document.getElementById('overlayMessage');
-const startButton = document.getElementById('startButton');
-const restartButton = document.getElementById('restartButton');
-const messageBox = document.getElementById('messageBox');
-const messageText = document.getElementById('messageText');
-
-// Function to show custom message box
-function showMessageBox(message) {
-    messageText.textContent = message;
-    messageBox.style.display = 'block';
-}
-
-// Function to hide custom message box
-function hideMessageBox() {
-    messageBox.style.display = 'none';
-}
-
-// Callback when ml5.js model is loaded
-function modelReady() {
-    console.log('HandPose model loaded!');
-    modelLoaded = true;
-    checkReadinessAndTransition();
-}
-
-// Callback when video stream is successfully acquired (initial stream)
-// The actual 'videoReady' will be set when video.elt.onloadeddata fires
-function videoStreamAcquired(stream) {
-    console.log('Video stream acquired.');
-    if (video && video.elt) {
-        video.elt.srcObject = stream; // Assign the stream to the video element
-        // Wait for the video element to actually load data and be ready to play
-        video.elt.onloadeddata = () => {
-            console.log('Video data loaded and ready!');
-            videoReady = true;
-            // Start hand pose detection only after video is confirmed ready and stream is available
-            if (!handPoseDetectionStarted) {
-                handPose.detectStart(video, gotHands);
-                handPoseDetectionStarted = true;
-                console.log('HandPose detection started.');
-            }
-            checkReadinessAndTransition();
-        };
-        // Handle cases where video stream might end unexpectedly during game
-        video.elt.onended = () => {
-            console.warn('Video stream ended unexpectedly.');
-            videoReady = false;
-            showMessageBox('攝影機串流已結束。請檢查攝影機連線。');
-            currentGameState = GAME_STATE.GAME_OVER;
-            noLoop(); // Stop draw loop
-        };
-    } else {
-        console.error('Video element not found or initialized.');
-        videoLoadError(new Error('Video element not found.'));
-    }
-}
-
-
-// Callback if video loading fails
-function videoLoadError(err) {
-    console.error('Video capture error:', err);
-    showMessageBox('無法啟動攝影機。請檢查攝影機權限並重新整理頁面。');
-    // Transition to an error state where game cannot start
-    currentGameState = GAME_STATE.GAME_OVER; // Use GAME_OVER to indicate unplayable state
-    overlayTitle.textContent = '錯誤！';
-    overlayMessage.innerHTML = '無法啟動攝影機。請檢查攝影機權限並重新整理頁面。';
-    startButton.classList.add('hidden');
-    restartButton.classList.add('hidden');
-    gameOverlay.classList.remove('hidden');
-    noLoop(); // Stop draw loop
-}
-
-// Check if both model and video are ready to transition to start screen
-function checkReadinessAndTransition() {
-    if (modelLoaded && videoReady && handPoseDetectionStarted && currentGameState === GAME_STATE.LOADING) {
-        currentGameState = GAME_STATE.START_SCREEN;
-        overlayTitle.textContent = '數字捕捉大挑戰';
-        overlayMessage.innerHTML = `
-            用食指捕捉偶數，用拇指捕捉奇數！<br>
-            準備好了嗎？
-        `;
-        startButton.classList.remove('hidden');
-        restartButton.classList.add('hidden');
-        gameOverlay.classList.remove('hidden'); // Ensure overlay is visible for start screen
-        loop(); // Start draw loop to show overlay
-    } else if (currentGameState === GAME_STATE.LOADING) {
-        // Update loading message based on what's ready
-        let loadingMsg = '載入中...<br>';
-        if (modelLoaded) {
-            loadingMsg += '模型已載入。<br>';
-        } else {
-            loadingMsg += '等待模型載入...<br>';
-        }
-        if (videoReady) {
-            loadingMsg += '攝影機已準備。<br>';
-        } else {
-            loadingMsg += '等待攝影機準備...<br>';
-        }
-        overlayMessage.innerHTML = loadingMsg;
-        gameOverlay.classList.remove('hidden'); // Ensure overlay is visible during loading
-    }
-}
-
-
-// p5.js preload function
-window.preload = function() {
-    // Initialize ml5 handPose model, passing modelReady as a callback
-    handPose = ml5.handPose({ flipped: true }, modelReady);
-}
-
-// Callback function for ml5 handPose detection
-window.gotHands = function(results) {
+// Callback function when hand detection results are available
+function gotHands(results) {
     hands = results;
 }
 
-// p5.js setup function
-window.setup = function() {
-    const canvas = createCanvas(640, 480);
-    canvas.parent('p5-canvas-container'); // Attach canvas to the specific div
+// setup function - executed once when the program starts
+function setup() {
+    // Create canvas and attach it to the 'game-container' div
+    let canvas = createCanvas(640, 480);
+    canvas.parent('game-container'); // Attach the canvas to the specified div
 
-    // Attempt to create video capture, passing videoStreamAcquired as a callback for the initial stream
-    video = createCapture(VIDEO, { flipped: true }, videoStreamAcquired);
+    // Create video capture and hide it (it will be drawn on the canvas)
+    video = createCapture(VIDEO, { flipped: true });
     video.hide();
-    // Add an error handler for the underlying video element
-    video.elt.onerror = videoLoadError;
 
-    // handPose.detectStart is now called inside videoStreamAcquired after onloadeddata
-    // Initialize falling numbers (only if game is not in an error state)
-    if (currentGameState !== GAME_STATE.GAME_OVER) {
-        for (let i = 0; i < 5; i++) { // Start with a few numbers on screen
-            fallingNumbers.push(createFallingNumber());
-        }
-    }
+    // Start detecting hands from the video stream
+    handPose.detectStart(video, gotHands);
 
-    // Set up event listeners for buttons
-    startButton.addEventListener('click', startGame);
-    restartButton.addEventListener('click', startGame);
+    // Get references to buttons and attach event listeners
+    startButton = select('#startButton');
+    startButton.mousePressed(startGame);
 
-    // Initial UI update for loading state
-    updateUI();
-    checkReadinessAndTransition(); // Check initial readiness and update overlay
-    noLoop(); // Pause draw loop initially until everything is ready
-}
-
-// Function to create a new falling number object
-function createFallingNumber() {
-    const value = floor(random(1, 100)); // Random number between 1 and 99
-    return {
-        x: random(numberRadius, width - numberRadius), // Random horizontal position
-        y: -numberRadius, // Start above the canvas
-        value: value,
-        radius: numberRadius,
-        speed: random(1.5, 3.5), // Random falling speed
-        caught: false // Flag to check if it's caught
-    };
+    resetButton = select('#resetButton');
+    resetButton.mousePressed(startGame); // "Play again" button also calls startGame
+    resetButton.hide(); // Hide "Play again" button initially
 }
 
 // Function to start or restart the game
 function startGame() {
+    gameStarted = true;
     score = 0;
-    gameTimer = gameDuration;
-    fallingNumbers = [];
-    for (let i = 0; i < 5; i++) {
-        fallingNumbers.push(createFallingNumber());
+    lives = 5;
+    fallingItems = [];
+    targetChar = generateRandomChar(); // Set the first target character
+    lastItemGenerationTime = millis(); // Reset item generation timer
+    gameOver = false;
+
+    startButton.hide(); // Hide start button
+    resetButton.hide(); // Hide reset button
+}
+
+// Main drawing loop - continuously executed
+function draw() {
+    // Draw the video stream as the background
+    image(video, 0, 0, width, height);
+
+    // Check if the game has not started yet
+    if (!gameStarted) {
+        displayStartScreen();
+        return; // Exit the drawing loop early
     }
-    currentGameState = GAME_STATE.PLAYING;
-    gameOverlay.classList.add('hidden'); // Hide overlay
-    updateUI();
-    loop(); // Resume draw loop if paused
-}
 
-// Function to end the game
-function endGame() {
-    currentGameState = GAME_STATE.GAME_OVER;
-    overlayTitle.textContent = '遊戲結束！';
-    overlayMessage.innerHTML = `您的最終分數是：<span class="text-green-400 font-bold">${score}</span><br>再玩一次？`;
-    startButton.classList.add('hidden');
-    restartButton.classList.remove('hidden');
-    gameOverlay.classList.remove('hidden'); // Show overlay
-    noLoop(); // Pause the draw loop
-}
+    // Check if the game is over
+    if (gameOver) {
+        displayGameOverScreen();
+        return; // Exit the drawing loop early
+    }
 
-// Function to update score and timer display
-function updateUI() {
-    scoreDisplay.textContent = `分數: ${score}`;
-    timerDisplay.textContent = `時間: ${floor(gameTimer)}`;
-}
+    // --- Game in progress ---
+    // Display score, lives, and target character
+    displayGameInfo();
 
-// p5.js draw function - main game loop
-window.draw = function() {
-    // Always draw a background, even if video isn't ready, to avoid black screen
-    background(0); // Black background for the canvas
+    // Generate new falling items at a fixed interval
+    if (millis() - lastItemGenerationTime > itemGenerationInterval) {
+        fallingItems.push(createFallingItem());
+        lastItemGenerationTime = millis();
+    }
 
-    if (currentGameState === GAME_STATE.PLAYING) {
-        // Only draw video and hands if they are ready
-        if (videoReady) {
-            image(video, 0, 0, width, height);
-            // If video is ready but no hands are detected, show a message
-            if (hands.length === 0) {
-                fill(255, 255, 255, 150); // Semi-transparent white
-                textAlign(CENTER, CENTER);
-                textSize(20);
-                text('請將手放在攝影機前', width / 2, height / 2 + 50);
-            }
-        } else {
-            // Display a message if video is not ready
-            fill(255);
-            textAlign(CENTER, CENTER);
-            textSize(24);
-            text('攝影機中斷，請檢查...', width / 2, height / 2);
-        }
+    // Update and draw all falling items
+    // Loop backward to safely remove items from the array
+    for (let i = fallingItems.length - 1; i >= 0; i--) {
+        let item = fallingItems[i];
+        item.y += item.speed; // Move item downwards
 
+        // Draw the falling character
+        drawFallingItem(item);
 
-        // Update game timer
-        gameTimer -= deltaTime / 1000; // deltaTime is in milliseconds
-        if (gameTimer <= 0) {
-            gameTimer = 0;
-            endGame();
-        }
-        updateUI();
-
-        // Process each hand detected
-        let leftIndexFinger = null;
-        let rightIndexFinger = null;
-        let leftThumb = null;
-        let rightThumb = null;
-
+        // Check for collision with hands
         if (hands.length > 0) {
-            for (let hand of hands) {
-                // Only process hands with sufficient confidence
-                if (hand.confidence > 0.1) {
-                    // Get keypoints for index finger tip (8) and thumb tip (4)
-                    const indexFinger = hand.keypoints[8];
-                    const thumb = hand.keypoints[4];
+            let hand = hands[0]; // For simplicity, assume only one hand
+            if (hand.confidence > 0.1) {
+                // Calculate the "catching point" of the hand (average of wrist and middle finger base)
+                let handX = (hand.keypoints[0].x + hand.keypoints[9].x) / 2;
+                let handY = (hand.keypoints[0].y + hand.keypoints[9].y) / 2;
+                let catchingRadius = 60; // Define the size of the hand catching area
 
-                    // Assign fingers based on handedness
-                    if (hand.handedness === "Left") {
-                        leftIndexFinger = indexFinger;
-                        leftThumb = thumb;
-                    } else if (hand.handedness === "Right") {
-                        rightIndexFinger = indexFinger;
-                        rightThumb = thumb;
-                    }
+                // (Optional) Draw a circle around the hand catching point for visual feedback
+                // noFill();
+                // stroke(0, 0, 255, 100); // Semi-transparent blue
+                // strokeWeight(2);
+                // ellipse(handX, handY, catchingRadius * 2);
 
-                    // Draw hand keypoints and lines for visualization
-                    let lineColor;
-                    if (hand.handedness == "Left") {
-                        lineColor = color(255, 0, 255); // Magenta for left hand
-                    } else {
-                        lineColor = color(255, 255, 0); // Yellow for right hand
-                    }
-                    stroke(lineColor);
-                    strokeWeight(3);
-
-                    // Draw lines connecting keypoints (simplified for clarity)
-                    // This part is for visual feedback of the hand skeleton
-                    const connections = [
-                        [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
-                        [0, 5], [5, 6], [6, 7], [7, 8], // Index finger
-                        [5, 9], [9, 10], [10, 11], [11, 12], // Middle finger
-                        [9, 13], [13, 14], [14, 15], [15, 16], // Ring finger
-                        [0, 17], [17, 18], [18, 19], [19, 20] // Pinky finger
-                    ];
-                    for (let conn of connections) {
-                        line(hand.keypoints[conn[0]].x, hand.keypoints[conn[0]].y,
-                             hand.keypoints[conn[1]].x, hand.keypoints[conn[1]].y);
-                    }
-
-                    noStroke();
-                    for (let i = 0; i < hand.keypoints.length; i++) {
-                        fill(lineColor);
-                        circle(hand.keypoints[i].x, hand.keypoints[i].y, 10); // Smaller circles for keypoints
-                    }
+                // Check the distance between the falling item and the hand's catching point
+                let d = dist(item.x, item.y, handX, handY);
+                if (d < item.radius + catchingRadius) { // Collision detected
+                    handleCollision(item, i); // Handle the collision
                 }
             }
         }
 
-        // Update and draw falling numbers
-        for (let i = fallingNumbers.length - 1; i >= 0; i--) {
-            let num = fallingNumbers[i];
+        // Check if the item has fallen off the screen
+        if (item.y > height + item.radius) {
+            handleOffScreenItem(item, i); // Handle items that fall off screen
+        }
+    }
 
-            // Update number position
-            num.y += num.speed;
+    // Draw hand keypoints and skeleton lines
+    drawHands();
+}
 
-            // Check for collisions with fingers
-            let caughtByFinger = false;
-            let fingerUsed = null; // 'index' or 'thumb'
+// --- Helper functions for drawing and game logic ---
 
-            // Check all detected hands
-            for (let hand of hands) {
-                if (hand.confidence > 0.1) {
-                    const indexFinger = hand.keypoints[8];
-                    const thumb = hand.keypoints[4];
+// Display start screen message
+function displayStartScreen() {
+    fill(255); // White text
+    textSize(40);
+    textAlign(CENTER, CENTER);
+    text("手勢捕捉遊戲", width / 2, height / 2 - 50);
+    textSize(20);
+    text("用您的手捕捉目標字元！", width / 2, height / 2);
+    startButton.show(); // Ensure start button is visible
+}
 
-                    // Check index finger collision
-                    if (dist(indexFinger.x, indexFinger.y, num.x, num.y) < num.radius) {
-                        caughtByFinger = true;
-                        fingerUsed = 'index';
-                        break; // Only need one finger to catch
-                    }
-                    // Check thumb collision
-                    if (dist(thumb.x, thumb.y, num.x, num.y) < num.radius) {
-                        caughtByFinger = true;
-                        fingerUsed = 'thumb';
-                        break; // Only need one finger to catch
-                    }
-                }
-            }
+// Display game over screen message
+function displayGameOverScreen() {
+    fill(255); // White text
+    textSize(40);
+    textAlign(CENTER, CENTER);
+    text("遊戲結束！", width / 2, height / 2 - 50);
+    textSize(30);
+    text("最終得分: " + score, width / 2, height / 2);
+    textSize(20);
+    text("再玩一次以打破您的記錄！", width / 2, height / 2 + 50);
+    resetButton.show(); // Show "Play again" button
+}
 
-            if (caughtByFinger && !num.caught) {
-                num.caught = true; // Mark as caught to prevent multiple hits
+// Display current score, lives, and target character during gameplay
+function displayGameInfo() {
+    fill(255); // White text
+    textSize(24);
+    textAlign(LEFT, TOP);
+    text("得分: " + score, 10, 10);
+    text("生命: " + lives, 10, 40);
 
-                if (fingerUsed === 'index' && num.value % 2 === 0) {
-                    // Correct catch: Index finger catches even number
-                    score += 10;
-                    showMessageBox(`成功！您用食指捕捉了偶數 ${num.value}。+10 分！`);
-                } else if (fingerUsed === 'thumb' && num.value % 2 !== 0) {
-                    // Correct catch: Thumb catches odd number
-                    score += 10;
-                    showMessageBox(`成功！您用拇指捕捉了奇數 ${num.value}。+10 分！`);
+    textSize(32);
+    textAlign(CENTER, TOP);
+    fill(0, 255, 0); // Target character in green
+    text("捕捉: " + targetChar, width / 2, 10);
+}
+
+// Create a new falling item (random letter or number)
+function createFallingItem() {
+    let charType = random(['letter', 'number']);
+    let char;
+    if (charType === 'letter') {
+        char = String.fromCharCode(65 + floor(random(26))); // A-Z
+    } else {
+        char = String(floor(random(10))); // 0-9
+    }
+    return {
+        char: char,
+        x: random(50, width - 50), // Random horizontal position
+        y: -50, // Start from above the canvas
+        speed: random(1.5, 3.5), // Random falling speed
+        radius: 20 // Approximate radius for text character collision detection
+    };
+}
+
+// Draw a falling item
+function drawFallingItem(item) {
+    fill(255, 200, 0); // Item color is orange-yellow
+    textSize(item.radius * 1.5); // Adjust text size based on radius
+    textAlign(CENTER, CENTER);
+    text(item.char, item.x, item.y);
+}
+
+// Generate a random character (letter A-Z or number 0-9) as the target
+function generateRandomChar() {
+    let charType = random(['letter', 'number']);
+    if (charType === 'letter') {
+        return String.fromCharCode(65 + floor(random(26))); // A-Z
+    } else {
+        return String(floor(random(10))); // 0-9
+    }
+}
+
+// Handle collision between a falling item and the hand
+function handleCollision(item, index) {
+    if (item.char === targetChar) {
+        score++; // Correct catch
+        targetChar = generateRandomChar(); // Set a new target
+    } else {
+        lives--; // Incorrect catch
+    }
+    fallingItems.splice(index, 1); // Remove the caught item
+    checkGameOver(); // Check if the game is over due to this interaction
+}
+
+// Handle items that fall off the bottom of the screen
+function handleOffScreenItem(item, index) {
+    if (item.char === targetChar) {
+        lives--; // Missed target character
+    }
+    fallingItems.splice(index, 1); // Remove the item that fell off screen
+    checkGameOver(); // Check if the game is over due to this interaction
+}
+
+// Check if the game should end (out of lives)
+function checkGameOver() {
+    if (lives <= 0) {
+        gameOver = true;
+    }
+}
+
+// Draw hand keypoints and skeleton lines
+function drawHands() {
+    if (hands.length > 0) {
+        for (let hand of hands) {
+            if (hand.confidence > 0.1) { // Only draw if confidence is high enough
+                let lineColor;
+                // Assign different colors based on whether the hand is left or right
+                if (hand.handedness == "Left") {
+                    lineColor = color(255, 0, 255); // Left hand is magenta
                 } else {
-                    // Incorrect catch
-                    score = max(0, score - 5); // Deduct points, but not below 0
-                    const correctFinger = (num.value % 2 === 0) ? '食指' : '拇指';
-                    showMessageBox(`錯誤！您應該用 ${correctFinger} 捕捉 ${num.value}。-5 分！`);
+                    lineColor = color(255, 255, 0); // Right hand is yellow
                 }
-                updateUI();
-                // Remove the caught number and add a new one
-                fallingNumbers.splice(i, 1);
-                fallingNumbers.push(createFallingNumber());
+                stroke(lineColor);
+                strokeWeight(3);
+
+                // Draw lines connecting keypoints to form the hand skeleton
+                // These connections are based on common hand pose models
+                // Thumb
+                line(hand.keypoints[0].x, hand.keypoints[0].y, hand.keypoints[1].x, hand.keypoints[1].y);
+                line(hand.keypoints[1].x, hand.keypoints[1].y, hand.keypoints[2].x, hand.keypoints[2].y);
+                line(hand.keypoints[2].x, hand.keypoints[2].y, hand.keypoints[3].x, hand.keypoints[3].y);
+                line(hand.keypoints[3].x, hand.keypoints[3].y, hand.keypoints[4].x, hand.keypoints[4].y); // Thumb tip
+
+                // Index finger
+                line(hand.keypoints[0].x, hand.keypoints[0].y, hand.keypoints[5].x, hand.keypoints[5].y); // Wrist to index finger base
+                line(hand.keypoints[5].x, hand.keypoints[5].y, hand.keypoints[6].x, hand.keypoints[6].y);
+                line(hand.keypoints[6].x, hand.keypoints[6].y, hand.keypoints[7].x, hand.keypoints[7].y);
+                line(hand.keypoints[7].x, hand.keypoints[7].y, hand.keypoints[8].x, hand.keypoints[8].y); // Index finger tip
+
+                // Middle finger
+                line(hand.keypoints[9].x, hand.keypoints[9].y, hand.keypoints[10].x, hand.keypoints[10].y);
+                line(hand.keypoints[10].x, hand.keypoints[10].y, hand.keypoints[11].x, hand.keypoints[11].y);
+                line(hand.keypoints[11].x, hand.keypoints[11].y, hand.keypoints[12].x, hand.keypoints[12].y); // Middle finger tip
+
+                // Ring finger
+                line(hand.keypoints[13].x, hand.keypoints[13].y, hand.keypoints[14].x, hand.keypoints[14].y);
+                line(hand.keypoints[14].x, hand.keypoints[14].y, hand.keypoints[15].x, hand.keypoints[15].y);
+                line(hand.keypoints[15].x, hand.keypoints[15].y, hand.keypoints[16].x, hand.keypoints[16].y); // Ring finger tip
+
+                // Pinky finger
+                line(hand.keypoints[0].x, hand.keypoints[0].y, hand.keypoints[17].x, hand.keypoints[17].y); // Wrist to pinky finger base
+                line(hand.keypoints[17].x, hand.keypoints[17].y, hand.keypoints[18].x, hand.keypoints[18].y);
+                line(hand.keypoints[18].x, hand.keypoints[18].y, hand.keypoints[19].x, hand.keypoints[19].y);
+                line(hand.keypoints[19].x, hand.keypoints[19].y, hand.keypoints[20].x, hand.keypoints[20].y); // Pinky finger tip
+
+                // Connect finger bases (palm lines)
+                line(hand.keypoints[5].x, hand.keypoints[5].y, hand.keypoints[9].x, hand.keypoints[9].y);
+                line(hand.keypoints[9].x, hand.keypoints[9].y, hand.keypoints[13].x, hand.keypoints[13].y);
+                line(hand.keypoints[13].x, hand.keypoints[13].y, hand.keypoints[17].x, hand.keypoints[17].y);
+
+
+                noStroke(); // No border for keypoints
+                for (let i = 0; i < hand.keypoints.length; i++) {
+                    fill(lineColor); // Fill with the same color as the lines
+                    circle(hand.keypoints[i].x, hand.keypoints[i].y, 16); // Draw circles for keypoints
+                }
             }
-
-            // If number goes off-screen, remove it and add a new one
-            if (num.y > height + num.radius) {
-                fallingNumbers.splice(i, 1);
-                fallingNumbers.push(createFallingNumber());
-            }
-
-            // Draw the number
-            fill(255, 100, 100); // Reddish color for numbers
-            noStroke();
-            ellipse(num.x, num.y, num.radius * 2);
-
-            // Draw the number value
-            fill(255); // White text
-            textAlign(CENTER, CENTER);
-            textSize(num.radius * 0.8);
-            text(num.value, num.x, num.y);
         }
-    } else if (currentGameState === GAME_STATE.LOADING) {
-        // Draw loading message on canvas as well
-        fill(255);
-        textAlign(CENTER, CENTER);
-        textSize(24);
-        let loadingProgress = floor(frameCount * 0.05) % 4; // Cycles 0, 1, 2, 3
-        let dots = '';
-        for (let i = 0; i < loadingProgress; i++) {
-            dots += '.';
-        }
-        let loadingMsg = '載入中' + dots + '\n';
-        if (modelLoaded) loadingMsg += '模型已載入。\n';
-        if (videoReady) loadingMsg += '攝影機已準備。\n';
-        text(loadingMsg, width / 2, height / 2);
-
-        // Add a simple visual loading indicator (e.g., pulsing circle)
-        let pulseSize = map(sin(frameCount * 0.1), -1, 1, 10, 30);
-        fill(255, 200, 0, 150); // Orange pulsing circle
-        noStroke();
-        ellipse(width / 2, height / 2 - 80, pulseSize, pulseSize);
-
-    } else if (currentGameState === GAME_STATE.START_SCREEN) {
-        // Overlay is visible, showing start game message.
-        // No additional drawing needed on canvas for start screen, as overlay covers it.
-    } else if (currentGameState === GAME_STATE.GAME_OVER) {
-        // Game over screen is handled by endGame() and noLoop()
-        // Overlay is visible, showing game over message.
     }
 }
